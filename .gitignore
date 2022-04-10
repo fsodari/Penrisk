@@ -3,3 +3,5 @@
 *.svg
 *.png
 *.jpg
+*.xcf
+!penrosemap.png
