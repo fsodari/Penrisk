@@ -6,18 +6,29 @@ from abc import abstractmethod
 # A small tolerance for comparing floats for equality
 TOL = 1.0e-5
 # psi = 1/phi where phi is the Golden ratio, sqrt(5)+1)/2
-PSI = (np.sqrt(5) - 1) / 2
+PSI: float = (np.sqrt(5.0) - 1.0) / 2.0
 # psi**2 = 1 - psi
-PSI2 = 1 - PSI
+PSI2: float = 1 - PSI
 
 
 def cart2complex(*coord):
     """Return x, y coordinates as a + bj complex number."""
-    return coord[0] + 1j * coord[1]
+    a, b = coord
+    return a + 1j * b
+
+
+def complex2cart(cnum: complex) -> tuple[float, float]:
+    """"""
+    return cnum.real, cnum.imag
 
 
 def point(*args):
+    """Create a complex number from cartesian coordinates."""
     return cart2complex(*args)
+
+
+class RobinsonTriangle:
+    """"""
 
 
 @dataclass
@@ -25,30 +36,6 @@ class RobinsonTriangle:
     a: complex
     b: complex
     c: complex
-
-    def center(self):
-        return (self.a + self.c) / 2.0
-
-    def conjugate(self):
-        return self.__class__(
-            self.a.conjugate(), self.b.conjugate(), self.c.conjugate()
-        )
-
-    def rotate(self, theta: float):
-        """"""
-        rot = np.cos(theta) + 1j * np.sin(theta)
-        a = self.a * rot
-        b = self.b * rot
-        c = self.c * rot
-
-        return self.__class__(a, b, c)
-
-    def translate(self, amount: complex):
-        a = self.a + amount
-        b = self.b + amount
-        c = self.c + amount
-
-        return self.__class__(a, b, c)
 
     def path(self, rhombus=True):
         """
@@ -66,13 +53,16 @@ class RobinsonTriangle:
         return "m{},{} l{},{} l{},{}z".format(*xy(self.a) + xy(ab) + xy(bc))
 
     @abstractmethod
-    def inflate(self):
+    def inflate(self) -> list[RobinsonTriangle]:
+        """Run the inflation procedure to generate penrose tiles. Each shape has a different inflation process."""
         pass
 
 
 @dataclass
 class FatRhombus(RobinsonTriangle):
-    """"""
+    """
+    This rhombus has side lengths with the ration 1 : 1 : phi
+    """
 
     def inflate(self) -> list[RobinsonTriangle]:
         """"""
@@ -101,11 +91,50 @@ class SkinnyRhombus(RobinsonTriangle):
         return [SkinnyRhombus(d, self.c, self.a), FatRhombus(self.c, d, self.b)]
 
 
-def translate(*vertices: complex, amount: complex):
-    return [v + amount for v in vertices]
+def center(triangle: RobinsonTriangle) -> complex:
+    """Return the center of a robinson triangle. This is the midpoint of the base of an isosceles triangle."""
+    return (triangle.a + triangle.c) / 2.0
 
 
-def remove_dupes(tiles):
+def conjugate(triangle: RobinsonTriangle) -> RobinsonTriangle:
+    """Returns a new triangle made from the complex conjugate of the vertices. This is equivalent to a reflection."""
+    return triangle.__class__(
+        triangle.a.conjugate(), triangle.b.conjugate(), triangle.c.conjugate()
+    )
+
+
+def rotate(
+    triangle: RobinsonTriangle, theta: float, origin: complex = 0 + 0j
+) -> RobinsonTriangle:
+    """
+    Performs a rotation about an origin and returns the new triangle.
+    If no origin is given, 0 + 0j will be used.
+    Rotation Equation: a' = origin + e**(j*theta)(a - origin)
+    """
+    a = origin + np.exp(1j * theta) * (triangle.a - origin)
+    b = origin + np.exp(1j * theta) * (triangle.b - origin)
+    c = origin + np.exp(1j * theta) * (triangle.c - origin)
+
+    # Return a new triangle
+    return triangle.__class__(a, b, c)
+
+
+def translate(triangle: RobinsonTriangle, amount: complex = 0 + 0j) -> RobinsonTriangle:
+    """Translates by a given amount and returns a new triangle."""
+    a = triangle.a + amount
+    b = triangle.b + amount
+    c = triangle.c + amount
+
+    # Return a new triangle
+    return triangle.__class__(a, b, c)
+
+
+def inflate(triangle: RobinsonTriangle) -> list[RobinsonTriangle]:
+    """"""
+    return triangle.inflate()
+
+
+def remove_dupes(tiles: list[RobinsonTriangle]):
     """
     Remove tiles giving rise to identical rhombuses from the
     ensemble.
@@ -113,13 +142,10 @@ def remove_dupes(tiles):
 
     # tiles give rise to identical rhombuses if these rhombuses have
     # the same centre.
-    selements: list[RobinsonTriangle] = sorted(
-        tiles, key=lambda e: (e.center().real, e.center().imag)
-    )
+    selements = sorted(tiles, key=lambda e: (center(e).real, center(e).imag))
     elements = [selements[0]]
     for i, element in enumerate(selements[1:], start=1):
-        element: RobinsonTriangle
-        if abs(element.center() - selements[i - 1].center()) > TOL:
+        if abs(center(element) - center(selements[i - 1])) > TOL:
             elements.append(element)
 
     return elements
@@ -129,20 +155,62 @@ def all_points(shapes: list[RobinsonTriangle]):
     """Get all points from shapes. Remove duplicate points"""
 
 
+def is_in_box(
+    triangle: RobinsonTriangle,
+    xbound: tuple[float, float],
+    ybound: tuple[float, float],
+    margin: float = 1.0,
+) -> bool:
+    """Returns true if the center of the triangle is inside the bounding box."""
+    c = center(triangle)
+
+    x_marg_amt = (margin - 1.0) * (xbound[1] - xbound[0])
+    y_marg_amt = (margin - 1.0) * (ybound[1] - ybound[0])
+
+    return (
+        c.real >= (xbound[0] - x_marg_amt)
+        and c.real <= (xbound[1] + x_marg_amt)
+        and c.imag >= (ybound[0] - y_marg_amt)
+        and c.imag <= (ybound[1] + y_marg_amt)
+    )
+
+
+def find_minmax(tiling: list[RobinsonTriangle]) -> tuple[complex]:
+    minx = tiling[0].a.real
+    maxx = minx
+    miny = tiling[0].a.imag
+    maxy = miny
+
+    for t in tiling:
+        new_minx = np.min([t.a.real, t.b.real, t.c.real])
+        new_maxx = np.max([t.a.real, t.b.real, t.c.real])
+        new_miny = np.min([t.a.imag, t.b.imag, t.c.imag])
+        new_maxy = np.max([t.a.imag, t.b.imag, t.c.imag])
+
+        if new_minx < minx:
+            minx = new_minx
+        if new_maxx > maxx:
+            maxx = new_maxx
+        if new_miny < miny:
+            miny = new_miny
+        if new_maxy > maxy:
+            maxy = new_maxy
+
+    return minx + 0j, maxx + 0j, 1j * miny, 1j * maxy
+
+
 def make_svg(
     tiling: list[RobinsonTriangle],
-    minx: float = 0,
-    maxx: float = 800,
-    miny: float = 0,
-    maxy: float = 800,
     stroke_width: float = 0.01,
     draw_rhombuses: bool = True,
 ):
     """Make and return the SVG for the tiling as a str."""
 
+    minx, maxx, miny, maxy = find_minmax(tiling)
     stroke_color = "#000000"
 
-    viewbox = f"{minx} {miny} {(maxx-minx)} {maxy-miny}"
+    viewbox = f"{minx.real} {miny.imag} {(maxx-minx).real} {(maxy-miny).imag}"
+
     svg = [
         '<?xml version="1.0" encoding="utf-8"?>',
         f'<svg width="100%" height="100%" viewBox="{viewbox}"'
