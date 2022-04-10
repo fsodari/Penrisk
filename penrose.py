@@ -61,7 +61,7 @@ class RobinsonTriangle:
 @dataclass
 class FatRhombus(RobinsonTriangle):
     """
-    This rhombus has side lengths with the ration 1 : 1 : phi
+    This triangle has side lengths with the ratio 1 : 1 : phi
     """
 
     def inflate(self) -> list[RobinsonTriangle]:
@@ -80,7 +80,7 @@ class FatRhombus(RobinsonTriangle):
 
 @dataclass
 class SkinnyRhombus(RobinsonTriangle):
-    """"""
+    """This triangle has side lengths with the ratio 1 : 1 : psi"""
 
     def inflate(self) -> list[RobinsonTriangle]:
         """
