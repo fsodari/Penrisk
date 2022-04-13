@@ -1,137 +1,95 @@
 from pathlib import Path
+from typing import Iterable, Protocol
 import numpy as np
-from dataclasses import dataclass
-from abc import abstractmethod
 
-# A small tolerance for comparing floats for equality
-TOL = 1.0e-5
-# psi = 1/phi where phi is the Golden ratio, sqrt(5)+1)/2
-PSI: float = (np.sqrt(5.0) - 1.0) / 2.0
-# psi**2 = 1 - psi
-PSI2: float = 1 - PSI
+from geometry import Polygon, isclose, PSI, PSI2
+from geometry import centroid, rotate
 
 
-def cart2complex(*coord):
-    """Return x, y coordinates as a + bj complex number."""
-    a, b = coord
-    return a + 1j * b
+class RobinsonTriangle(Polygon):
+    """A rhombus created from reflecting an isosceles triangle."""
+
+    def __new__(cls, points: Iterable[complex]):
+        # This shape can be initialized with 3 or 4 points. If 4 points are provided, the 4th point is ignored and re-generated.
+        a, b, c, *_ = points
+
+        # Check if ab == bc
+        if not isclose(abs(b - a), abs(c - b)):
+            raise Exception("Must initialze RobinsonTriangle with isosceles triangle.")
+
+        origin = (a + c) / 2.0
+        d = rotate((b,), np.pi, origin)
+
+        return super(RobinsonTriangle, cls).__new__(cls, (a, b, c, *d))
 
 
-def complex2cart(cnum: complex) -> tuple[float, float]:
-    """"""
-    return cnum.real, cnum.imag
-
-
-def point(*args):
-    """Create a complex number from cartesian coordinates."""
-    return cart2complex(*args)
-
-
-class RobinsonTriangle:
-    """"""
-
-
-@dataclass
-class RobinsonTriangle:
-    a: complex
-    b: complex
-    c: complex
-
-    def path(self, rhombus=True):
-        """
-        Return the SVG "d" path element specifier for the rhombus formed
-        by this triangle and its mirror image joined along their bases. If
-        rhombus=False, the path for the triangle itself is returned instead.
-        """
-
-        ab, bc = self.b - self.a, self.c - self.b
-        xy = lambda v: (v.real, v.imag)
-        if rhombus:
-            return "m{},{} l{},{} l{},{} l{},{}z".format(
-                *xy(self.a) + xy(ab) + xy(bc) + xy(-ab)
-            )
-        return "m{},{} l{},{} l{},{}z".format(*xy(self.a) + xy(ab) + xy(bc))
-
-    @abstractmethod
-    def inflate(self) -> list[RobinsonTriangle]:
-        """Run the inflation procedure to generate penrose tiles. Each shape has a different inflation process."""
-        pass
-
-
-@dataclass
 class FatRhombus(RobinsonTriangle):
-    """
-    This triangle has side lengths with the ratio 1 : 1 : phi
-    """
-
-    def inflate(self) -> list[RobinsonTriangle]:
+    def inflate(self) -> Iterable[RobinsonTriangle]:
         """"""
         # D and E divide sides AC and AB respectively
-        d = PSI2 * self.a + PSI * self.c
-        e = PSI2 * self.a + PSI * self.b
+        a, b, c, _ = self
+
+        d = PSI2 * a + PSI * c
+        e = PSI2 * a + PSI * b
         # Take care to order the vertices here so as to get the right
         # orientation for the resulting triangles.
-        return [
-            FatRhombus(d, e, self.a),
-            SkinnyRhombus(e, d, self.b),
-            FatRhombus(self.c, d, self.b),
-        ]
+        return (
+            FatRhombus((d, e, a)),
+            ThinRhombus((e, d, b)),
+            FatRhombus((c, d, b)),
+        )
 
 
-@dataclass
-class SkinnyRhombus(RobinsonTriangle):
-    """This triangle has side lengths with the ratio 1 : 1 : psi"""
+class ThinRhombus(RobinsonTriangle):
+    """"""
 
-    def inflate(self) -> list[RobinsonTriangle]:
+    def inflate(self) -> Iterable[RobinsonTriangle]:
         """
         "Inflate" this tile, returning the two resulting Robinson triangles
         in a list.
         """
-        d = PSI * self.a + PSI2 * self.b
-        return [SkinnyRhombus(d, self.c, self.a), FatRhombus(self.c, d, self.b)]
+        a, b, c, _ = self
+
+        d = PSI * a + PSI2 * b
+        return ThinRhombus((d, c, a)), FatRhombus((c, d, b))
 
 
-def center(triangle: RobinsonTriangle) -> complex:
-    """Return the center of a robinson triangle. This is the midpoint of the base of an isosceles triangle."""
-    return (triangle.a + triangle.c) / 2.0
+class SupportsInflate(Protocol):
+    def inflate(self) -> Iterable[RobinsonTriangle]:
+        ...
 
 
-def conjugate(triangle: RobinsonTriangle) -> RobinsonTriangle:
-    """Returns a new triangle made from the complex conjugate of the vertices. This is equivalent to a reflection."""
-    return triangle.__class__(
-        triangle.a.conjugate(), triangle.b.conjugate(), triangle.c.conjugate()
-    )
-
-
-def rotate(
-    triangle: RobinsonTriangle, theta: float, origin: complex = 0 + 0j
-) -> RobinsonTriangle:
-    """
-    Performs a rotation about an origin and returns the new triangle.
-    If no origin is given, 0 + 0j will be used.
-    Rotation Equation: a' = origin + e**(j*theta)(a - origin)
-    """
-    a = origin + np.exp(1j * theta) * (triangle.a - origin)
-    b = origin + np.exp(1j * theta) * (triangle.b - origin)
-    c = origin + np.exp(1j * theta) * (triangle.c - origin)
-
-    # Return a new triangle
-    return triangle.__class__(a, b, c)
-
-
-def translate(triangle: RobinsonTriangle, amount: complex = 0 + 0j) -> RobinsonTriangle:
-    """Translates by a given amount and returns a new triangle."""
-    a = triangle.a + amount
-    b = triangle.b + amount
-    c = triangle.c + amount
-
-    # Return a new triangle
-    return triangle.__class__(a, b, c)
-
-
-def inflate(triangle: RobinsonTriangle) -> list[RobinsonTriangle]:
-    """"""
+def inflate(triangle: SupportsInflate) -> Iterable[RobinsonTriangle]:
     return triangle.inflate()
+
+
+def svg_path(points: Iterable[complex]):
+    """
+    Return the SVG "d" path element specifier for a polygon. Make sure the points are in the right order.
+    """
+
+    svg_str = ""
+    # Make a list we can
+    # pts = [p for p in points]
+
+    for i, p in enumerate(points):
+        if i == 0:
+            svg_str += f"m{p.real}, {p.imag}"
+        else:
+            diff = p - p_prev
+            svg_str += f" l{diff.real}, {diff.imag}"
+        p_prev = p
+
+    svg_str += "z"
+    return svg_str
+
+    # ab, bc, cd = self.b - self.a, self.c - self.b, self.d - self.c
+    # xy = lambda v: (v.real, v.imag)
+    # if rhombus:
+    #     return "m{},{} l{},{} l{},{} l{},{}z".format(
+    #         *xy(self.a) + xy(ab) + xy(bc) + xy(cd)
+    #     )
+    # return "m{},{} l{},{} l{},{}z".format(*xy(self.a) + xy(ab) + xy(bc))
 
 
 def remove_dupes(tiles: list[RobinsonTriangle]):
@@ -142,17 +100,13 @@ def remove_dupes(tiles: list[RobinsonTriangle]):
 
     # tiles give rise to identical rhombuses if these rhombuses have
     # the same centre.
-    selements = sorted(tiles, key=lambda e: (center(e).real, center(e).imag))
+    selements = sorted(tiles, key=lambda e: (centroid(e).real, centroid(e).imag))
     elements = [selements[0]]
     for i, element in enumerate(selements[1:], start=1):
-        if abs(center(element) - center(selements[i - 1])) > TOL:
+        if not isclose(centroid(element), centroid(selements[i - 1])):
             elements.append(element)
 
     return elements
-
-
-def all_points(shapes: list[RobinsonTriangle]):
-    """Get all points from shapes. Remove duplicate points"""
 
 
 def is_in_box(
@@ -162,7 +116,7 @@ def is_in_box(
     margin: float = 1.0,
 ) -> bool:
     """Returns true if the center of the triangle is inside the bounding box."""
-    c = center(triangle)
+    c = centroid(triangle)
 
     x_marg_amt = (margin - 1.0) * (xbound[1] - xbound[0])
     y_marg_amt = (margin - 1.0) * (ybound[1] - ybound[0])
@@ -175,28 +129,25 @@ def is_in_box(
     )
 
 
-def find_minmax(tiling: list[RobinsonTriangle]) -> tuple[complex]:
-    minx = tiling[0].a.real
+def find_minmax(tiling: list[RobinsonTriangle]) -> tuple[complex, ...]:
+    minx = centroid(tiling[0])
     maxx = minx
-    miny = tiling[0].a.imag
+    miny = minx
     maxy = miny
 
     for t in tiling:
-        new_minx = np.min([t.a.real, t.b.real, t.c.real])
-        new_maxx = np.max([t.a.real, t.b.real, t.c.real])
-        new_miny = np.min([t.a.imag, t.b.imag, t.c.imag])
-        new_maxy = np.max([t.a.imag, t.b.imag, t.c.imag])
+        c = centroid(t)
 
-        if new_minx < minx:
-            minx = new_minx
-        if new_maxx > maxx:
-            maxx = new_maxx
-        if new_miny < miny:
-            miny = new_miny
-        if new_maxy > maxy:
-            maxy = new_maxy
+        if c.real < minx.real:
+            minx = c
+        if c.real > maxx.real:
+            maxx = c
+        if c.imag < miny.imag:
+            miny = c
+        if c.imag > maxy.imag:
+            maxy = c
 
-    return minx + 0j, maxx + 0j, 1j * miny, 1j * maxy
+    return minx, maxx, miny, maxy
 
 
 def make_svg(
@@ -227,7 +178,7 @@ def make_svg(
     for t in tiling:
         svg.append(
             '<path fill="#ffffff" fill-opacity="0.0" d="{}"/>'.format(
-                t.path(rhombus=draw_rhombuses),
+                svg_path(t),
             )
         )
 
@@ -239,3 +190,10 @@ def make_svg(
 def write_svg(svg, file: Path):
     with open(file, "w") as f:
         f.write(svg)
+
+
+if __name__ == "__main__":
+    pts = 1j, 0, 1.0
+    x = rotate(pts, np.pi / 10.0)
+    tri = RobinsonTriangle(x)
+    print(tri)
