@@ -1,33 +1,68 @@
-from pathlib import Path
-from typing import Iterable, Protocol
-import numpy as np
+from __future__ import annotations
 
-from geometry import Polygon, isclose, PSI, PSI2
-from geometry import centroid, rotate
+from pathlib import Path
+from typing import Any, Iterable, Protocol
+import numpy as np
+from numpy import ndarray
+
+from geometry import Polygon, isclose, PSI, PSI2, translate
+from geometry import centroid, rotate, scale
+
+
+# class RobinsonTriangle(Polygon):
+#     """A rhombus created from reflecting an isosceles triangle."""
+
+#     theta: float
+
+#     def __new__(cls, points: ndarray):
+#         # This shape can be initialized with 3 or 4 points. If 4 points are provided, the 4th point is ignored and re-generated.
+#         a, b, c, *_ = points
+
+#         # Check if ab == bc
+#         # if not isclose(abs(b - a), abs(c - b)):
+#         #     print(cls)
+#         #     print(np.abs(b - a), np.abs(c - b), np.abs(a - c))
+#         #     raise Exception("Must initialze RobinsonTriangle with isosceles triangle.")
+
+#         origin = (a + c) / 2.0
+#         d = rotate(b, np.pi, origin)
+
+#         return super().__new__(cls, [a, b, c, d])
 
 
 class RobinsonTriangle(Polygon):
-    """A rhombus created from reflecting an isosceles triangle."""
+    id: type[RobinsonTriangle]
+    theta: float
 
-    def __new__(cls, points: Iterable[complex]):
-        # This shape can be initialized with 3 or 4 points. If 4 points are provided, the 4th point is ignored and re-generated.
-        a, b, c, *_ = points
+    def __new__(cls, input_array: ndarray, id: type[RobinsonTriangle] = None):
+        a, b, c, *_ = input_array
 
         # Check if ab == bc
-        if not isclose(abs(b - a), abs(c - b)):
-            raise Exception("Must initialze RobinsonTriangle with isosceles triangle.")
+        # if not isclose(abs(b - a), abs(c - b)):
+        #     print(cls)
+        #     print(np.abs(b - a), np.abs(c - b), np.abs(a - c))
+        #     raise Exception("Must initialze RobinsonTriangle with isosceles triangle.")
 
         origin = (a + c) / 2.0
-        d = rotate((b,), np.pi, origin)
+        d = rotate(b, np.pi, origin)
 
-        return super(RobinsonTriangle, cls).__new__(cls, (a, b, c, *d))
+        return super().__new__(cls, (a, b, c, d), id)
+
+    def inflate(self) -> tuple[RobinsonTriangle, ...]:
+        ...
 
 
 class FatRhombus(RobinsonTriangle):
-    def inflate(self) -> Iterable[RobinsonTriangle]:
+    theta: float = np.pi * 1.0 / 5.0
+
+    def __new__(cls, input_array: ndarray):
+        return super().__new__(cls, input_array, FatRhombus)
+
+    @classmethod
+    def inflate(cls, triangle: RobinsonTriangle) -> tuple[RobinsonTriangle, ...]:
         """"""
         # D and E divide sides AC and AB respectively
-        a, b, c, _ = self
+        a, b, c, *_ = triangle
 
         d = PSI2 * a + PSI * c
         e = PSI2 * a + PSI * b
@@ -41,38 +76,59 @@ class FatRhombus(RobinsonTriangle):
 
 
 class ThinRhombus(RobinsonTriangle):
-    """"""
+    # Using pi/2 - (1/5) * pi
+    theta: float = np.pi * 2.0 / 5.0
 
-    def inflate(self) -> Iterable[RobinsonTriangle]:
+    def __new__(cls, input_array: ndarray):
+        return super().__new__(cls, input_array, ThinRhombus)
+
+    @classmethod
+    def inflate(cls, triangle: RobinsonTriangle) -> tuple[RobinsonTriangle, ...]:
         """
         "Inflate" this tile, returning the two resulting Robinson triangles
         in a list.
         """
-        a, b, c, _ = self
-
+        a, b, c, *_ = triangle
         d = PSI * a + PSI2 * b
+
         return ThinRhombus((d, c, a)), FatRhombus((c, d, b))
 
 
-class SupportsInflate(Protocol):
-    def inflate(self) -> Iterable[RobinsonTriangle]:
-        ...
+def create_penrose_rhombus(
+    side_length: float, shape: type[RobinsonTriangle] = FatRhombus
+) -> RobinsonTriangle:
+    """"""
+    # a = -1.0 / 2 + 0j
+
+    a = 0 + 0j
+    b = rotate(side_length, shape.theta)
+    c = b.real * 2.0
+
+    origin = (a + c) / 2.0
+    # d = rotate(b, np.pi, origin)
+    # b = 1.0 / 2 * np.exp(1j * shape.theta)
+    # c = 1.0 / 2 / PSI + 0j
+
+    # scale_amt = side_length / abs(b - a)
+    # return shape((a, b, c))
+    rhombus = shape((a, b, c))
+    center = centroid(rhombus)
+
+    return rotate(translate(rhombus, -1 * center), np.pi / 2.0)
 
 
-def inflate(triangle: SupportsInflate) -> Iterable[RobinsonTriangle]:
-    return triangle.inflate()
+def inflate(triangle: RobinsonTriangle) -> list[RobinsonTriangle]:
+    return triangle.inflate(triangle)
 
 
-def svg_path(points: Iterable[complex]):
+def svg_path(points: ndarray):
     """
     Return the SVG "d" path element specifier for a polygon. Make sure the points are in the right order.
     """
 
     svg_str = ""
-    # Make a list we can
-    # pts = [p for p in points]
-
     for i, p in enumerate(points):
+        p: complex
         if i == 0:
             svg_str += f"m{p.real}, {p.imag}"
         else:
@@ -83,16 +139,8 @@ def svg_path(points: Iterable[complex]):
     svg_str += "z"
     return svg_str
 
-    # ab, bc, cd = self.b - self.a, self.c - self.b, self.d - self.c
-    # xy = lambda v: (v.real, v.imag)
-    # if rhombus:
-    #     return "m{},{} l{},{} l{},{} l{},{}z".format(
-    #         *xy(self.a) + xy(ab) + xy(bc) + xy(cd)
-    #     )
-    # return "m{},{} l{},{} l{},{}z".format(*xy(self.a) + xy(ab) + xy(bc))
 
-
-def remove_dupes(tiles: list[RobinsonTriangle]):
+def remove_dupes(tiles: ndarray):
     """
     Remove tiles giving rise to identical rhombuses from the
     ensemble.
@@ -100,9 +148,11 @@ def remove_dupes(tiles: list[RobinsonTriangle]):
 
     # tiles give rise to identical rhombuses if these rhombuses have
     # the same centre.
-    selements = sorted(tiles, key=lambda e: (centroid(e).real, centroid(e).imag))
+    # selements = sorted(tiles, key=lambda e: (centroid(e).real, centroid(e).imag))
+    selements = np.sort(tiles)
     elements = [selements[0]]
     for i, element in enumerate(selements[1:], start=1):
+        # print(i)
         if not isclose(centroid(element), centroid(selements[i - 1])):
             elements.append(element)
 
@@ -129,7 +179,7 @@ def is_in_box(
     )
 
 
-def find_minmax(tiling: list[RobinsonTriangle]) -> tuple[complex, ...]:
+def find_minmax(tiling: ndarray) -> tuple[complex, ...]:
     minx = centroid(tiling[0])
     maxx = minx
     miny = minx
@@ -150,11 +200,7 @@ def find_minmax(tiling: list[RobinsonTriangle]) -> tuple[complex, ...]:
     return minx, maxx, miny, maxy
 
 
-def make_svg(
-    tiling: list[RobinsonTriangle],
-    stroke_width: float = 0.01,
-    draw_rhombuses: bool = True,
-):
+def make_svg(tiling: ndarray, stroke_width: float = 0.01):
     """Make and return the SVG for the tiling as a str."""
 
     minx, maxx, miny, maxy = find_minmax(tiling)
