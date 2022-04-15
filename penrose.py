@@ -8,6 +8,7 @@ from numpy import ndarray
 from geometry import Polygon, intersects, isclose, PSI, PSI2, translate
 from geometry import centroid, conjugate, rotate, scale
 
+import cv2
 
 # class RobinsonTriangle(Polygon):
 #     """A rhombus created from reflecting an isosceles triangle."""
@@ -217,12 +218,21 @@ def create_penrose_rhombus(
 
 def create_tiling(
     side_length: float,
-    bounds: Polygon,
+    image,
     max_n: int = 10,
     initial_shape: type[RobinsonTriangle] = FatRhombus,
 ):
     """Create a tiling that completely coves the boundaries."""
     tiling = [create_penrose_rhombus(side_length, initial_shape)]
+
+    bounds = Polygon(
+        (
+            0 + 0j,
+            image.shape[1] + 0j,
+            image.shape[1] + 1j * image.shape[0],
+            0 + 1j * image.shape[0],
+        )
+    )
 
     bminx, bmaxx, bminy, bmaxy = find_minmax(bounds)
 
@@ -260,6 +270,17 @@ def create_tiling(
         _n += 1
 
     return valid_tiles
+
+
+def create_mask(poly: Polygon, image):
+    """"""
+    pts = np.array([(v.real, v.imag) for v in poly], dtype=np.int32)
+
+    # Create mask
+    mask = np.zeros(image.shape, np.uint8)
+    mask = cv2.fillPoly(mask, [pts], (255,) * image.shape[2])
+
+    return mask
 
 
 def make_svg(tiling: ndarray, stroke_width: float = 0.01):
