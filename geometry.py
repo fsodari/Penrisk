@@ -82,80 +82,30 @@ def intersects(poly1: Polygon, poly2: Polygon) -> bool:
 
     """
 
-    # Check all of poly1's edges.
-    # for i, p in enumerate(poly1):
-    #     p: complex
-    #     edge = p - poly1[i - 1]
-    #     # perpindicular to the edge
-    #     perp = complex(-1 * edge.imag, edge.real)
-    #     # norm = perp / np.abs(edge)
-    #     # print(np.abs(norm))
-
-    #     # Project polygon onto normal vector axis
-    #     poly1_proj = [np.vdot(perp, pt) for pt in poly1]
-    #     poly2_proj = [np.vdot(perp, pt) for pt in poly2]
-
-    #     # print(poly1_proj)
-    #     # print(poly2_proj)
-
-    #     if np.min(poly1_proj) > np.max(poly2_proj):
-    #         return True
-
-    #     if np.max(poly1_proj) < np.min(poly2_proj):
-    #         return True
+    def ccw(a: complex, b: complex, c: complex):
+        return (c.imag - a.imag) * (b.real - a.real) > (b.imag - a.imag) * (
+            c.real - a.real
+        )
 
     # Check all of poly2's edges.
     for i, p in enumerate(poly1):
         p: complex
 
-        x1, x2 = poly1[i - 1].real, p.real
-        y1, y2 = poly1[i - 1].imag, p.imag
+        # x1, x2 = poly1[i - 1].real, p.real
+        # y1, y2 = poly1[i - 1].imag, p.imag
+
+        a = poly1[i - 1]
+        b = p
 
         for k, p2 in enumerate(poly2):
-            x3, x4 = poly2[k - 1].real, p2.real
-            y3, y4 = poly2[k - 1].imag, p2.imag
+            # x3, x4 = poly2[k - 1].real, p2.real
+            # y3, y4 = poly2[k - 1].imag, p2.imag
 
-            num = (x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)
-            den = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4)
-            t = num / den
+            c = poly2[k - 1]
+            d = p2
 
-            num = (x1 - x3) * (y1 - y2) - (y1 - y3) * (x1 - x2)
-            den = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4)
-            u = num / den
-
-            if t >= 0.0 and t <= 1.0 and u >= 0.0 and u <= 1.0:
+            ix = ccw(a, c, d) != ccw(b, c, d) and ccw(a, b, c) != ccw(a, b, d)
+            if ix:
                 return True
 
-        # edge = p - poly2[i - 1]
-        # # perpindicular to the edge
-        # perp = rotate(edge, np.pi / 2)
-        # # norm = perp / np.abs(edge)
-
-        # # Project polygon onto normal vector axis
-        # poly1_proj = [np.dot(perp, pt) for pt in poly1]
-        # poly2_proj = [np.dot(perp, pt) for pt in poly2]
-
-        # if np.min(poly1_proj) > np.max(poly2_proj):
-        #     return True
-
-        # if np.max(poly1_proj) < np.min(poly2_proj):
-        #     return True
-
     return False
-
-    # def ccw(a: complex, b: complex, c: complex):
-    #     return (c.imag - a.imag) * (b.real - a.real) > (b.imag - a.imag) * (
-    #         c.real - a.real
-    #     )
-
-    # # Check each edge in the polygon with each line
-    # for i, p in enumerate(points):
-    #     for l in lines:
-    #         a, b = points[i - 1], p
-    #         c, d = l[0], l[1]
-
-    #         ix = ccw(a, c, d) != ccw(b, c, d) and ccw(a, b, c) != ccw(a, b, d)
-    #         if ix:
-    #             return True
-
-    # return False

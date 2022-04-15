@@ -5,7 +5,7 @@ from typing import Any, Iterable, Protocol
 import numpy as np
 from numpy import ndarray
 
-from geometry import Polygon, isclose, PSI, PSI2, translate
+from geometry import Polygon, intersects, isclose, PSI, PSI2, translate
 from geometry import centroid, conjugate, rotate, scale
 
 
@@ -160,23 +160,44 @@ def is_in_box(
     )
 
 
-def find_minmax(tiling: ndarray) -> tuple[complex, ...]:
-    minx = centroid(tiling[0])
+def find_minmax(poly: Polygon) -> tuple[complex, ...]:
+    minx = poly[0]
     maxx = minx
     miny = minx
     maxy = miny
 
-    for t in tiling:
-        c = centroid(t)
+    for p in poly:
+        p: complex
+        if p.real < minx.real:
+            minx = p
+        if p.real > maxx.real:
+            maxx = p
+        if p.imag < miny.imag:
+            miny = p
+        if p.imag > maxy.imag:
+            maxy = p
 
-        if c.real < minx.real:
-            minx = c
-        if c.real > maxx.real:
-            maxx = c
-        if c.imag < miny.imag:
-            miny = c
-        if c.imag > maxy.imag:
-            maxy = c
+    return minx, maxx, miny, maxy
+
+
+def find_minmaxv(polygons: list[Polygon]) -> tuple[complex, ...]:
+    """"""
+    minx = polygons[0][0]
+    maxx = minx
+    miny = minx
+    maxy = miny
+
+    for poly in polygons:
+        pminx, pmaxx, pminy, pmaxy = find_minmax(poly)
+
+        if pminx.real < minx.real:
+            minx = pminx
+        if pmaxx.real > maxx.real:
+            maxx = pmaxx
+        if pminy.imag < miny.imag:
+            miny = pminy
+        if pmaxy.imag > maxy.imag:
+            maxy = pmaxy
 
     return minx, maxx, miny, maxy
 
@@ -194,28 +215,57 @@ def create_penrose_rhombus(
     return translate(shape((a, b, c)), -1 * center)
 
 
-def create_tiling(initial: RobinsonTriangle, n: int) -> list[RobinsonTriangle]:
-    """"""
-    tiling = [initial]
+def create_tiling(
+    side_length: float,
+    bounds: Polygon,
+    max_n: int = 10,
+    initial_shape: type[RobinsonTriangle] = FatRhombus,
+):
+    """Create a tiling that completely coves the boundaries."""
+    tiling = [create_penrose_rhombus(side_length, initial_shape)]
 
-    # Inflate N times.
-    for _ in range(n):
+    bminx, bmaxx, bminy, bmaxy = find_minmax(bounds)
+
+    x_shift = (bminx + bmaxx) / 2.0
+    y_shift = (bminy + bmaxy) / 2.0
+    shift = complex(x_shift, y_shift)
+
+    _n = 0
+    prev_valid = 0
+    while _n < max_n:
         inflated = []
         for t in tiling:
             inflated.extend(inflate(t))
+        # tiling = remove_dupes(inflated)
         tiling = inflated
+        conj = [conjugate(t) for t in tiling]
 
-    # tiling = remove_dupes(tiling)
+        # Translate the tiles so that they're centered within the bounds.
+        shift_tiles = [translate(t, shift) for t in remove_dupes(tiling + conj)]
 
-    # Reflect across the x axis
-    conj = [conjugate(t) for t in tiling]
-    return remove_dupes(tiling + conj)
+        valid_tiles = list(
+            filter(
+                lambda t: intersects(t, bounds)
+                or is_in_box(t, (bminx.real, bmaxx.real), (bminy.imag, bmaxy.imag)),
+                shift_tiles,
+            )
+        )
+
+        # Converging.
+        if len(valid_tiles) <= prev_valid and len(valid_tiles) != 0:
+            return valid_tiles
+
+        if prev_valid < len(valid_tiles):
+            prev_valid = len(valid_tiles)
+        _n += 1
+
+    return valid_tiles
 
 
 def make_svg(tiling: ndarray, stroke_width: float = 0.01):
     """Make and return the SVG for the tiling as a str."""
 
-    minx, maxx, miny, maxy = find_minmax(tiling)
+    minx, maxx, miny, maxy = find_minmaxv(tiling)
     stroke_color = "#000000"
 
     viewbox = f"{minx.real} {miny.imag} {(maxx-minx).real} {(maxy-miny).imag}"
