@@ -6,7 +6,7 @@ import numpy as np
 from numpy import ndarray
 
 from geometry import Polygon, isclose, PSI, PSI2, translate
-from geometry import centroid, rotate, scale
+from geometry import centroid, conjugate, rotate, scale
 
 
 # class RobinsonTriangle(Polygon):
@@ -38,10 +38,10 @@ class RobinsonTriangle(Polygon):
         a, b, c, *_ = input_array
 
         # Check if ab == bc
-        # if not isclose(abs(b - a), abs(c - b)):
-        #     print(cls)
-        #     print(np.abs(b - a), np.abs(c - b), np.abs(a - c))
-        #     raise Exception("Must initialze RobinsonTriangle with isosceles triangle.")
+        if not isclose(abs(b - a), abs(c - b)):
+            print(cls)
+            print(np.abs(b - a), np.abs(c - b), np.abs(a - c))
+            raise Exception("Must initialze RobinsonTriangle with isosceles triangle.")
 
         origin = (a + c) / 2.0
         d = rotate(b, np.pi, origin)
@@ -64,14 +64,17 @@ class FatRhombus(RobinsonTriangle):
         # D and E divide sides AC and AB respectively
         a, b, c, *_ = triangle
 
+        # Preserve side lengths
+        scale_factor = 1.0 / PSI
+
         d = PSI2 * a + PSI * c
         e = PSI2 * a + PSI * b
         # Take care to order the vertices here so as to get the right
         # orientation for the resulting triangles.
         return (
-            FatRhombus((d, e, a)),
-            ThinRhombus((e, d, b)),
-            FatRhombus((c, d, b)),
+            scale(FatRhombus((d, e, a)), scale_factor),
+            scale(ThinRhombus((e, d, b)), scale_factor),
+            scale(FatRhombus((c, d, b)), scale_factor),
         )
 
 
@@ -91,30 +94,13 @@ class ThinRhombus(RobinsonTriangle):
         a, b, c, *_ = triangle
         d = PSI * a + PSI2 * b
 
-        return ThinRhombus((d, c, a)), FatRhombus((c, d, b))
+        # Preserve side lengths
+        scale_factor = 1.0 / PSI
 
-
-def create_penrose_rhombus(
-    side_length: float, shape: type[RobinsonTriangle] = FatRhombus
-) -> RobinsonTriangle:
-    """"""
-    # a = -1.0 / 2 + 0j
-
-    a = 0 + 0j
-    b = rotate(side_length, shape.theta)
-    c = b.real * 2.0
-
-    origin = (a + c) / 2.0
-    # d = rotate(b, np.pi, origin)
-    # b = 1.0 / 2 * np.exp(1j * shape.theta)
-    # c = 1.0 / 2 / PSI + 0j
-
-    # scale_amt = side_length / abs(b - a)
-    # return shape((a, b, c))
-    rhombus = shape((a, b, c))
-    center = centroid(rhombus)
-
-    return rotate(translate(rhombus, -1 * center), np.pi / 2.0)
+        return (
+            scale(ThinRhombus((d, c, a)), scale_factor),
+            scale(FatRhombus((c, d, b)), scale_factor),
+        )
 
 
 def inflate(triangle: RobinsonTriangle) -> list[RobinsonTriangle]:
@@ -148,8 +134,7 @@ def remove_dupes(tiles: ndarray):
 
     # tiles give rise to identical rhombuses if these rhombuses have
     # the same centre.
-    # selements = sorted(tiles, key=lambda e: (centroid(e).real, centroid(e).imag))
-    selements = np.sort(tiles)
+    selements = sorted(tiles, key=lambda e: (centroid(e).real, centroid(e).imag))
     elements = [selements[0]]
     for i, element in enumerate(selements[1:], start=1):
         # print(i)
@@ -163,19 +148,15 @@ def is_in_box(
     triangle: RobinsonTriangle,
     xbound: tuple[float, float],
     ybound: tuple[float, float],
-    margin: float = 1.0,
 ) -> bool:
     """Returns true if the center of the triangle is inside the bounding box."""
     c = centroid(triangle)
 
-    x_marg_amt = (margin - 1.0) * (xbound[1] - xbound[0])
-    y_marg_amt = (margin - 1.0) * (ybound[1] - ybound[0])
-
     return (
-        c.real >= (xbound[0] - x_marg_amt)
-        and c.real <= (xbound[1] + x_marg_amt)
-        and c.imag >= (ybound[0] - y_marg_amt)
-        and c.imag <= (ybound[1] + y_marg_amt)
+        c.real >= xbound[0]
+        and c.real <= xbound[1]
+        and c.imag >= ybound[0]
+        and c.imag <= ybound[1]
     )
 
 
@@ -198,6 +179,37 @@ def find_minmax(tiling: ndarray) -> tuple[complex, ...]:
             maxy = c
 
     return minx, maxx, miny, maxy
+
+
+def create_penrose_rhombus(
+    side_length: float, shape: type[RobinsonTriangle] = FatRhombus
+) -> RobinsonTriangle:
+    """"""
+    a = 0j
+    b = side_length * np.exp(1j * shape.theta)
+    c = 2.0 * b.real + 0j
+
+    # Return a shape centered at the origin
+    center = (a + c) / 2.0
+    return translate(shape((a, b, c)), -1 * center)
+
+
+def create_tiling(initial: RobinsonTriangle, n: int) -> list[RobinsonTriangle]:
+    """"""
+    tiling = [initial]
+
+    # Inflate N times.
+    for _ in range(n):
+        inflated = []
+        for t in tiling:
+            inflated.extend(inflate(t))
+        tiling = inflated
+
+    # tiling = remove_dupes(tiling)
+
+    # Reflect across the x axis
+    conj = [conjugate(t) for t in tiling]
+    return remove_dupes(tiling + conj)
 
 
 def make_svg(tiling: ndarray, stroke_width: float = 0.01):
