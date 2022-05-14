@@ -1,34 +1,16 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Iterable, Protocol
 import numpy as np
 from numpy import ndarray
 
-from geometry import Polygon, intersects, isclose, PSI, PSI2, translate
-from geometry import centroid, conjugate, rotate, scale
+from .geometry import Polygon, intersects, isclose, PSI, PSI2, translate
+from .geometry import centroid, conjugate, rotate, scale
+
+from tempfile import NamedTemporaryFile
+from cairosvg import svg2png
 
 import cv2
-
-# class RobinsonTriangle(Polygon):
-#     """A rhombus created from reflecting an isosceles triangle."""
-
-#     theta: float
-
-#     def __new__(cls, points: ndarray):
-#         # This shape can be initialized with 3 or 4 points. If 4 points are provided, the 4th point is ignored and re-generated.
-#         a, b, c, *_ = points
-
-#         # Check if ab == bc
-#         # if not isclose(abs(b - a), abs(c - b)):
-#         #     print(cls)
-#         #     print(np.abs(b - a), np.abs(c - b), np.abs(a - c))
-#         #     raise Exception("Must initialze RobinsonTriangle with isosceles triangle.")
-
-#         origin = (a + c) / 2.0
-#         d = rotate(b, np.pi, origin)
-
-#         return super().__new__(cls, [a, b, c, d])
 
 
 class RobinsonTriangle(Polygon):
@@ -40,8 +22,6 @@ class RobinsonTriangle(Polygon):
 
         # Check if ab == bc
         if not isclose(abs(b - a), abs(c - b)):
-            print(cls)
-            print(np.abs(b - a), np.abs(c - b), np.abs(a - c))
             raise Exception("Must initialze RobinsonTriangle with isosceles triangle.")
 
         origin = (a + c) / 2.0
@@ -131,18 +111,34 @@ def remove_dupes(tiles: ndarray):
     """
     Remove tiles giving rise to identical rhombuses from the
     ensemble.
+
     """
 
-    # tiles give rise to identical rhombuses if these rhombuses have
-    # the same centre.
+    #   This seems rather difficult to do.
+    #   Checking if each element is equal to every other element is kind of slow O(n**2)
+    #   If we sort the list, it should require fewer comparisons since we only have to check
+    #   a certain range.
+    # Sort elements.
     selements = sorted(tiles, key=lambda e: (centroid(e).real, centroid(e).imag))
-    elements = [selements[0]]
-    for i, element in enumerate(selements[1:], start=1):
-        # print(i)
-        if not isclose(centroid(element), centroid(selements[i - 1])):
-            elements.append(element)
 
-    return elements
+    # First item is unique.
+    unique_elements = [selements[0]]
+
+    # Go through the entire list
+    for element in selements:
+        # Check if the element is already in the unique elements list.
+        found = False
+        for unique in unique_elements:
+            """"""
+            # Sorted by real first. If we move past an element, we can skip early.
+            if isclose(centroid(unique), centroid(element)):
+                found = True
+                break
+
+        if not found:
+            unique_elements.append(element)
+
+    return unique_elements
 
 
 def is_in_box(
@@ -218,69 +214,75 @@ def create_penrose_rhombus(
 
 def create_tiling(
     side_length: float,
-    image,
-    max_n: int = 10,
+    shape: tuple[int, ...],
+    n: int = 10,
     initial_shape: type[RobinsonTriangle] = FatRhombus,
+    offset: complex = 0j,
 ):
     """Create a tiling that completely coves the boundaries."""
     tiling = [create_penrose_rhombus(side_length, initial_shape)]
 
+    # Since we'll be reflecting the entire tileset across the x axis,
+    # we just need to check half of the image.
     bounds = Polygon(
         (
-            0 + 0j,
-            image.shape[1] + 0j,
-            image.shape[1] + 1j * image.shape[0],
-            0 + 1j * image.shape[0],
+            -shape[1] / 2 + 0j,
+            shape[1] / 2 + 0j,
+            shape[1] / 2 + 1j * shape[0] / 2,
+            -shape[1] / 2 + 1j * shape[0] / 2,
         )
     )
 
-    bminx, bmaxx, bminy, bmaxy = find_minmax(bounds)
+    l1 = Polygon(np.array([bounds[0], bounds[3]]))
 
-    x_shift = (bminx + bmaxx) / 2.0
-    y_shift = (bminy + bmaxy) / 2.0
-    shift = complex(x_shift, y_shift)
-
-    _n = 0
-    prev_valid = 0
-    while _n < max_n:
-        inflated = []
+    for _ in range(n):
+        # inflated
+        inflated: list[RobinsonTriangle] = []
         for t in tiling:
             inflated.extend(inflate(t))
-        # tiling = remove_dupes(inflated)
         tiling = inflated
-        conj = [conjugate(t) for t in tiling]
 
-        # Translate the tiles so that they're centered within the bounds.
-        shift_tiles = [translate(t, shift) for t in remove_dupes(tiling + conj)]
+        # Tiling bounds.
+        minx, _, _, maxy = find_minmaxv(tiling)
 
-        valid_tiles = list(
-            filter(
-                lambda t: intersects(t, bounds)
-                or is_in_box(t, (bminx.real, bmaxx.real), (bminy.imag, bmaxy.imag)),
-                shift_tiles,
-            )
+        l2 = Polygon(np.array([minx, maxy]))
+        if minx.real < -shape[1] / 2 and not intersects(l1, l2):
+            break
+
+    tiling = remove_dupes(tiling + [conjugate(t) for t in tiling])
+
+    full_bounds = Polygon(
+        (
+            -shape[1] / 2 - 1j * shape[0] / 2,
+            shape[1] / 2 - 1j * shape[0] / 2,
+            shape[1] / 2 + 1j * shape[0] / 2,
+            -shape[1] / 2 + 1j * shape[0] / 2,
         )
+    )
 
-        # Converging.
-        if len(valid_tiles) <= prev_valid and len(valid_tiles) != 0:
-            return valid_tiles
+    valid_tiles = list(
+        filter(
+            lambda t: intersects(t, full_bounds)
+            or is_in_box(
+                t, (-shape[1] / 2, shape[1] / 2), (-shape[0] / 2, shape[0] / 2)
+            ),
+            tiling,
+        )
+    )
 
-        if prev_valid < len(valid_tiles):
-            prev_valid = len(valid_tiles)
-        _n += 1
+    # Rotating will make it fit better on rectangular images.
+    # tiling = [rotate(t, PSI) for t in tiling]
+    shift_amount = complex(shape[1] / 2, shape[0] / 2)
+    return [translate(v, shift_amount) for v in valid_tiles]
 
-    return valid_tiles
 
+def find_largest_rectangle(tiling: list):
+    """
+    Find the largest rectangle that can fit entirely contained in
+    a set of tiles.
 
-def create_mask(poly: Polygon, image):
-    """"""
-    pts = np.array([(v.real, v.imag) for v in poly], dtype=np.int32)
-
-    # Create mask
-    mask = np.zeros(image.shape, np.uint8)
-    mask = cv2.fillPoly(mask, [pts], (255,) * image.shape[2])
-
-    return mask
+    The tiling is rhombus shaped.
+    """
 
 
 def make_svg(tiling: ndarray, stroke_width: float = 0.01):
@@ -321,8 +323,21 @@ def write_svg(svg, file: Path):
         f.write(svg)
 
 
+def overlay_tiles(
+    tiling: ndarray, im: cv2.Mat, output_image: Path, stroke_width: float = 0.01
+):
+    """Draw tiles on top of an image."""
+    # Draw each polygon
+    for tile in tiling:
+        # List of points in the polygon. Convert complex to cartesian.
+        pts = np.array([[x.real, x.imag] for x in tile], np.int32)
+        pts = pts.reshape((-1, 1, 2))
+        cv2.polylines(im, [pts], True, (0, 0, 0), stroke_width, lineType=cv2.LINE_AA)
+
+    cv2.imwrite(output_image, im)
+
+
 if __name__ == "__main__":
     pts = 1j, 0, 1.0
     x = rotate(pts, np.pi / 10.0)
     tri = RobinsonTriangle(x)
-    print(tri)

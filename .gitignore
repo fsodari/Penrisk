@@ -5,3 +5,5 @@
 *.jpg
 *.xcf
 !penrosemap.png
+*.egg-info
+

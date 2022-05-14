@@ -2,9 +2,9 @@ import numpy as np
 from numpy import ndarray
 
 # A small tolerance for comparing floats for equality
-RTOL = 1.0e-5
-ATOL = 1.0e-8
-TOL = 1.0e-5
+RTOL = 1.0e-2
+ATOL = 1.0e-2
+TOL = 1.0e-2
 
 # psi = 1/phi where phi is the Golden ratio, sqrt(5)+1)/2
 PSI: float = (np.sqrt(5.0) - 1.0) / 2.0
@@ -45,12 +45,12 @@ def complex2cart(cnum: complex) -> tuple[float, float]:
 def conjugate(points: ndarray) -> ndarray:
     """Return the complex conjugate. This is equivalent to a reflection across the real axis."""
     # return points.__class__(p.conjugate() for p in points)
-    return np.vectorize(complex.conjugate)(points)
+    return np.conjugate(points)
 
 
 def centroid(points: ndarray) -> complex:
     """Compute the centroid of a list of points."""
-    return np.sum(points) / len(points)
+    return np.mean(points)
 
 
 def translate(points: ndarray, amount: float) -> ndarray:
@@ -71,15 +71,6 @@ def scale(points: ndarray, k: float, origin: complex = 0j) -> ndarray:
 def intersects(poly1: Polygon, poly2: Polygon) -> bool:
     """
     Check if polygon intersects with another Polygon
-
-    Compare each edge of each polygon with each edge of the other polygon.
-
-    1. Construct a unit normal vector to the edge.
-
-    2. Take the dot product of each polygon's point with this vector.
-
-    3. Compare the min/max of each polygon to see if they overlap.
-
     """
 
     def ccw(a: complex, b: complex, c: complex):
@@ -87,20 +78,14 @@ def intersects(poly1: Polygon, poly2: Polygon) -> bool:
             c.real - a.real
         )
 
-    # Check all of poly2's edges.
+    # Check all of poly1's edges.
     for i, p in enumerate(poly1):
         p: complex
-
-        # x1, x2 = poly1[i - 1].real, p.real
-        # y1, y2 = poly1[i - 1].imag, p.imag
 
         a = poly1[i - 1]
         b = p
 
         for k, p2 in enumerate(poly2):
-            # x3, x4 = poly2[k - 1].real, p2.real
-            # y3, y4 = poly2[k - 1].imag, p2.imag
-
             c = poly2[k - 1]
             d = p2
 
