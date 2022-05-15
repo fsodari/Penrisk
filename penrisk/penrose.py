@@ -12,6 +12,10 @@ from cairosvg import svg2png
 
 import cv2
 
+from multiprocessing import Pool
+
+from scipy import ndimage
+
 
 class RobinsonTriangle(Polygon):
     id: type[RobinsonTriangle]
@@ -236,7 +240,6 @@ def create_tiling(
     l1 = Polygon(np.array([bounds[0], bounds[3]]))
 
     for _ in range(n):
-        # inflated
         inflated: list[RobinsonTriangle] = []
         for t in tiling:
             inflated.extend(inflate(t))
@@ -285,11 +288,13 @@ def find_largest_rectangle(tiling: list):
     """
 
 
-def make_svg(tiling: ndarray, stroke_width: float = 0.01):
+def make_svg(tiling: ndarray, stroke_width: float = 0.01, stroke_color=(0, 0, 0)):
     """Make and return the SVG for the tiling as a str."""
 
     minx, maxx, miny, maxy = find_minmaxv(tiling)
-    stroke_color = "#000000"
+    stroke_colorfmt = (
+        f"#{stroke_color[0]:02x}{stroke_color[1]:02x}{stroke_color[2]:02x}"
+    )
 
     viewbox = f"{minx.real} {miny.imag} {(maxx-minx).real} {(maxy-miny).imag}"
 
@@ -303,7 +308,7 @@ def make_svg(tiling: ndarray, stroke_width: float = 0.01):
     # The tiles' stroke widths scale with ngen
     svg.append(
         '<g style="stroke:{}; stroke-width: {};'
-        ' stroke-linejoin: round;">'.format(stroke_color, stroke_width)
+        ' stroke-linejoin: round;">'.format(stroke_colorfmt, stroke_width)
     )
 
     for t in tiling:
@@ -324,7 +329,11 @@ def write_svg(svg, file: Path):
 
 
 def overlay_tiles(
-    tiling: ndarray, im: cv2.Mat, output_image: Path, stroke_width: float = 0.01
+    tiling: ndarray,
+    im: cv2.Mat,
+    output_image: Path,
+    stroke_width: float = 0.01,
+    stroke_color=(0, 0, 0),
 ):
     """Draw tiles on top of an image."""
     # Draw each polygon
@@ -332,7 +341,7 @@ def overlay_tiles(
         # List of points in the polygon. Convert complex to cartesian.
         pts = np.array([[x.real, x.imag] for x in tile], np.int32)
         pts = pts.reshape((-1, 1, 2))
-        cv2.polylines(im, [pts], True, (0, 0, 0), stroke_width, lineType=cv2.LINE_AA)
+        cv2.polylines(im, [pts], True, stroke_color, stroke_width)
 
     cv2.imwrite(output_image, im)
 
@@ -341,3 +350,40 @@ if __name__ == "__main__":
     pts = 1j, 0, 1.0
     x = rotate(pts, np.pi / 10.0)
     tri = RobinsonTriangle(x)
+
+
+def rotation_angle(tri: RobinsonTriangle) -> float:
+    """Normalize the rotation so that line AC is parallel to the x axis"""
+    a, b, c, _ = tri
+
+    return np.arctan2(a.imag - c.imag, a.real - c.real)
+
+
+def normalize_rotation(image: cv2.Mat, theta: float, margin: int = 0) -> cv2.Mat:
+    """"""
+    # Bounding box not inlcuding transparency.
+    x, y, w, h = cv2.boundingRect(image[..., 3])
+
+    y -= margin
+    h += 2 * margin
+    x -= margin
+    w += 2 * margin
+
+    # Crop to the tile size.
+    cropped = image[y : y + h, x : x + w]
+
+    # Rotate the image.
+    rotated = ndimage.rotate(cropped, np.rad2deg(theta))
+
+    # Cropped again.
+    x, y, w, h = cv2.boundingRect(rotated[..., 3])
+
+    # Apply margins
+    y -= margin
+    h += 2 * margin
+    x -= margin
+    w += 2 * margin
+
+    cropped2 = rotated[y : y + h, x : x + w, :]
+
+    return cropped2
